@@ -4,7 +4,8 @@ import time
 import base64
 import joblib
 import numpy as np
-import paho.mqtt.client as mqtt
+import requests  # <--- Kita pakai ini pengganti MQTT
+import datetime
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN
@@ -15,6 +16,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- KONFIGURASI HTTP (GANTI IP DISINI) ---
+# Masukkan IP yang muncul di Serial Monitor Arduino
+ESP_URL = "http://192.168.1.5/"  # <--- GANTI IP INI
+
+# Detak Jantung Sistem
+st.info(f"⚡ Detak Jantung Sistem: {datetime.datetime.now().strftime('%H:%M:%S')}")
 
 # --- FUNGSI BACKGROUND IMAGE ---
 def add_bg_from_local(image_file):
@@ -38,13 +46,9 @@ add_bg_from_local('background.jpg')
 try:
     model_ai = joblib.load('model_rinoya_fix.pkl')
 except:
-    st.error("❌ ERROR: File 'model_rinoya_fix.pkl' tidak ditemukan.")
-    st.stop()
-
-# --- KONFIGURASI MQTT (PORT 1883) ---
-BROKER = "broker.emqx.io"
-PORT = 1883  # Jalur Stabil (Wajib Hotspot HP)
-TOPIC = "ipin"
+    # Buat dummy error biar gak crash kalau file gak ada
+    st.error("❌ ERROR: File 'model_rinoya_fix.pkl' tidak ditemukan. Menggunakan mode bypass.")
+    model_ai = None
 
 # ==========================================
 # 2. INISIALISASI SESSION STATE
@@ -57,55 +61,36 @@ if 'gas_val' not in st.session_state:
     st.session_state.gas_val = 0
 if 'dist_val' not in st.session_state:
     st.session_state.dist_val = 0
-if 'mqtt_connected' not in st.session_state:
-    st.session_state.mqtt_connected = False
-if 'last_update' not in st.session_state:
-    st.session_state.last_update = time.time()
+if 'is_online' not in st.session_state:
+    st.session_state.is_online = False
 if 'last_alert_status' not in st.session_state:
     st.session_state.last_alert_status = "" 
 
 # ==========================================
-# 3. MQTT SETUP (CALLBACKS)
+# 3. FUNGSI AMBIL DATA (HTTP REQUEST)
 # ==========================================
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        print(f"✓ BERHASIL TERHUBUNG KE {BROKER}:{PORT}")
-        client.subscribe(TOPIC)
-    else:
-        print(f"✗ GAGAL KONEK. Kode: {rc}")
-
-def on_message(client, userdata, message):
+def get_data_from_esp():
     try:
-        payload = str(message.payload.decode("utf-8"))
-        print(f"📥 DATA MASUK: {payload}") # Cek Terminal VS Code!
-        
-        data = payload.split(',')
-        if len(data) >= 2:
-            st.session_state.gas_val = int(data[0])
-            st.session_state.dist_val = int(data[1])
-            st.session_state.mqtt_connected = True
-            st.session_state.last_update = time.time()
-    except Exception as e:
-        print(f"Error Parsing: {e}")
-
-# Inisialisasi Client
-if 'client' not in st.session_state:
-    try:
-        # Paksa Version 1 agar kompatibel dengan library baru
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
+        # Request data ke ESP32 (Timeout 2 detik)
+        response = requests.get(ESP_URL, timeout=2)
+        if response.status_code == 200:
+            data = response.json()
+            # Pastikan kunci JSON sama dengan di Arduino ('gas' dan 'jarak')
+            return int(data['gas']), int(data['jarak']), True
     except:
-        client = mqtt.Client() # Fallback
+        pass
+    return None, None, False
 
-    client.on_connect = on_connect
-    client.on_message = on_message
-    
-    try:
-        print("Sedang menghubungkan ke MQTT...")
-        client.connect(BROKER, PORT)
-        client.loop_start()
-        st.session_state.client = client
-    except Exception as e:
-        st.error(f"Koneksi Internet Error: {e}")
+# --- PROSES PENGAMBILAN DATA ---
+# Kita panggil fungsi ini setiap kali halaman refresh
+gas_in, dist_in, status_koneksi = get_data_from_esp()
+
+if status_koneksi:
+    st.session_state.gas_val = gas_in
+    st.session_state.dist_val = dist_in
+    st.session_state.is_online = True
+else:
+    st.session_state.is_online = False
 
 # ==========================================
 # 4. SIDEBAR KONTROL
@@ -113,16 +98,12 @@ if 'client' not in st.session_state:
 with st.sidebar:
     st.header("📡 Status Perangkat")
     
-    # Logic Offline (Jika tidak ada data > 15 detik)
-    time_diff = time.time() - st.session_state.last_update
-    is_online = st.session_state.mqtt_connected and (time_diff < 15)
-    
-    if is_online:
+    if st.session_state.is_online:
         st.success("🟢 ONLINE (Terhubung)")
-        st.caption(f"Update terakhir: {int(time_diff)} detik lalu")
+        st.caption(f"Sumber: {ESP_URL}")
     else:
         st.error("🔴 OFFLINE (Terputus)")
-        st.caption("Cek Hotspot HP & ESP32")
+        st.caption("Cek IP Address & Hotspot HP")
 
     st.markdown("---")
     
@@ -154,11 +135,15 @@ st.markdown("""
 live_gas = st.session_state.gas_val
 live_dist = st.session_state.dist_val
 delta_gas = live_gas - st.session_state.last_gas
-st.session_state.last_gas = live_gas
+st.session_state.last_gas = live_gas # Update last gas untuk loop berikutnya
 
-input_data = np.array([[live_gas, live_dist, delta_gas]])
+# Prediksi AI
 try:
-    prediksi_label = model_ai.predict(input_data)[0]
+    if model_ai is not None:
+        input_data = np.array([[live_gas, live_dist, delta_gas]])
+        prediksi_label = model_ai.predict(input_data)[0]
+    else:
+        prediksi_label = 0
 except:
     prediksi_label = 0 # Default Aman
 
@@ -230,6 +215,7 @@ st.markdown(f"""
 
 # Grid Metrik
 col1, col2, col3 = st.columns(3)
+# Rumus isi: Anggap tinggi tong 28cm (sesuaikan jika perlu)
 persen_isi = max(0, min(100, int(((28 - live_dist) / 28) * 100)))
 
 with col1:
@@ -256,6 +242,7 @@ with col2:
 
 with col3:
     st.markdown("##### 🧠 AI Confidence")
+    # Logika dummy confidence score (bisa diganti proba AI asli)
     decay_score = min(100, int((live_gas - 300) / 800 * 100)) if live_gas > 300 else 0
     st.metric("Decay Risk", f"{decay_score}%")
     if decay_score > 70: st.error("Critical")
@@ -263,10 +250,9 @@ with col3:
     else: st.success("Safe")
 
 # ==========================================
-# 6. UI DASHBOARD (BAGIAN BAWAH) - VERSI PAKSA UPDATE
+# 7. GRAFIK & AUTO REFRESH
 # ==========================================
 
-# Grafik Trend
 st.markdown("### 📈 Real-time Trend")
 
 # Update Data Log
@@ -283,13 +269,14 @@ with c1:
 with c2: 
     st.area_chart(st.session_state.data_log[['Jarak']], color="#2EC4B6", height=250)
 
-# --- INDIKATOR DETAK JANTUNG ---
-# Ini untuk ngecek apakah dashboard jalan atau beku
-st.caption(f"Last Refresh: {time.strftime('%H:%M:%S')} (Data masuk: {st.session_state.mqtt_connected})")
+# --- TOMBOL DARURAT ---
+if st.button("🔄 Paksa Refresh Data"):
+    st.rerun()
 
 # --- AUTO REFRESH LOOP ---
-# Kita pakai trik 'empty' agar memory tidak bocor
-placeholder = st.empty()
-with placeholder:
-    time.sleep(1) # Tunggu 1 detik
-    st.rerun()    # Paksa restart script dari atas
+# Progress bar tipuan biar kelihatan sedang bekerja
+progress_text = "Menunggu data baru dari ESP32..."
+my_bar = st.progress(0, text=progress_text)
+time.sleep(1) # Tunggu 1 detik
+my_bar.empty()
+st.rerun()    # Ulangi script dari atas (mengambil data HTTP baru)
