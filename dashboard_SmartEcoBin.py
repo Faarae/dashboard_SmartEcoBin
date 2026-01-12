@@ -44,7 +44,7 @@ except:
 
 # --- KONFIGURASI HTTP TARGET (SESUAI ARDUINO) ---
 ESP_IP = "192.168.225.68"
-API_URL = f"http://{ESP_IP}/data" # Endpoint sesuai kode Arduino Anda
+API_URL = f"http://{ESP_IP}/" # Endpoint sesuai kode Arduino Anda
 
 # ==========================================
 # 2. INISIALISASI SESSION STATE
@@ -78,7 +78,7 @@ def get_sensor_data():
             data = response.json()
             
             gas_in = int(data['gas'])
-            dist_in = int(data['distance'])
+            dist_in = int(data['jarak'])
             
             st.session_state.gas_val = gas_in
             st.session_state.dist_val = dist_in
