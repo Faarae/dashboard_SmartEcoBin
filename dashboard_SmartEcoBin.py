@@ -68,44 +68,46 @@ if 'last_alert_status' not in st.session_state:
 # 3. MQTT & SIDEBAR SETUP
 # ==========================================
 
-# Tambahkan callback debug
+# 1. Definisikan semua Callback Function DULU
 def on_connect(client, userdata, flags, rc):
-    print(f"✓ MQTT Connected with code: {rc}")
-    client.subscribe(TOPIC)
+    if rc == 0:
+        print("✓ MQTT Connected!")
+        client.subscribe(TOPIC)
+    else:
+        print(f"✗ Connection failed code: {rc}")
 
 def on_disconnect(client, userdata, rc):
-    print(f"✗ MQTT Disconnected with code: {rc}")
-
-client.on_connect = on_connect
-client.on_disconnect = on_disconnect
-client.on_message = on_message
+    print(f"✗ MQTT Disconnected code: {rc}")
 
 def on_message(client, userdata, message):
     try:
         payload = str(message.payload.decode("utf-8"))
-        print(f"🔵 MQTT Received: {payload}")  # ← TAMBAHKAN INI
+        # print(f"🔵 MQTT Received: {payload}")  # Debugging
         
         data = payload.split(',')
-        st.session_state.gas_val = int(data[0])
-        st.session_state.dist_val = int(data[1])
-        st.session_state.mqtt_connected = True
-        st.session_state.last_update = time.time()
-        
-        print(f"✓ Parsed: Gas={data[0]}, Jarak={data[1]}")  # ← TAMBAHKAN INI
+        if len(data) >= 2: # Pastikan data tidak rusak
+            st.session_state.gas_val = int(data[0])
+            st.session_state.dist_val = int(data[1])
+            st.session_state.mqtt_connected = True
+            st.session_state.last_update = time.time()
     except Exception as e:
-        print(f"❌ MQTT Error: {e}")  # ← TAMBAHKAN INI
+        print(f"❌ Error Parsing: {e}")
 
+# 2. Inisialisasi Client hanya jika belum ada di Session State
 if 'client' not in st.session_state:
     client = mqtt.Client()
+    
+    # 3. Pasangkan Callback ke Client yang sudah dibuat
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
     client.on_message = on_message
+    
     try:
         client.connect(BROKER, PORT)
-        client.subscribe(TOPIC)
-        client.loop_start()
-        st.session_state.client = client
-    except: 
-        print("MQTT Connection Failed")
-
+        client.loop_start() # Jalankan di background thread
+        st.session_state.client = client # Simpan ke memori
+    except Exception as e: 
+        st.error(f"Koneksi MQTT Gagal: {e}")
 # --- SIDEBAR KONTROL ---
 with st.sidebar:
     # A. STATUS KONEKSI (VISUAL)
