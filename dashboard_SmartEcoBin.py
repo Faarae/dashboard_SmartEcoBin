@@ -262,16 +262,34 @@ with col3:
     elif decay_score > 30: st.warning("Warning")
     else: st.success("Safe")
 
-# Grafik
+# ==========================================
+# 6. UI DASHBOARD (BAGIAN BAWAH) - VERSI PAKSA UPDATE
+# ==========================================
+
+# Grafik Trend
 st.markdown("### 📈 Real-time Trend")
+
+# Update Data Log
 new_data = pd.DataFrame({'Gas': [live_gas], 'Jarak': [live_dist]})
 st.session_state.data_log = pd.concat([st.session_state.data_log, new_data], ignore_index=True)
+
+# Batasi agar grafik tidak berat (Max 50 data terakhir)
 if len(st.session_state.data_log) > 50: 
     st.session_state.data_log = st.session_state.data_log.iloc[1:]
 
 c1, c2 = st.columns(2)
-with c1: st.area_chart(st.session_state.data_log[['Gas']], color="#FF4B4B", height=250)
-with c2: st.area_chart(st.session_state.data_log[['Jarak']], color="#2EC4B6", height=250)
+with c1: 
+    st.area_chart(st.session_state.data_log[['Gas']], color="#FF4B4B", height=250)
+with c2: 
+    st.area_chart(st.session_state.data_log[['Jarak']], color="#2EC4B6", height=250)
 
-time.sleep(1)
-st.rerun()
+# --- INDIKATOR DETAK JANTUNG ---
+# Ini untuk ngecek apakah dashboard jalan atau beku
+st.caption(f"Last Refresh: {time.strftime('%H:%M:%S')} (Data masuk: {st.session_state.mqtt_connected})")
+
+# --- AUTO REFRESH LOOP ---
+# Kita pakai trik 'empty' agar memory tidak bocor
+placeholder = st.empty()
+with placeholder:
+    time.sleep(1) # Tunggu 1 detik
+    st.rerun()    # Paksa restart script dari atas
