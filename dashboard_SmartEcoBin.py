@@ -59,6 +59,8 @@ if 'dist_val' not in st.session_state:
     st.session_state.dist_val = 0
 if 'mqtt_connected' not in st.session_state:
     st.session_state.mqtt_connected = False
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = time.time()
 
 # ==========================================
 # 3. MQTT & SIDEBAR SETUP
