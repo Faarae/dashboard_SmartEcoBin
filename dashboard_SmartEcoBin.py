@@ -67,47 +67,59 @@ if 'last_alert_status' not in st.session_state:
 # ==========================================
 # 3. MQTT & SIDEBAR SETUP
 # ==========================================
-
-# 1. Definisikan semua Callback Function DULU
-def on_connect(client, userdata, flags, rc):
+# 1. Definisikan Callback (Kita buat universal agar tidak error versi)
+def on_connect(client, userdata, flags, rc, properties=None):
+    # rc = 0 artinya sukses
     if rc == 0:
-        print("✓ MQTT Connected!")
+        print("✓ MQTT Connected to HiveMQ!")
         client.subscribe(TOPIC)
     else:
         print(f"✗ Connection failed code: {rc}")
 
-def on_disconnect(client, userdata, rc):
+def on_disconnect(client, userdata, rc, properties=None):
     print(f"✗ MQTT Disconnected code: {rc}")
 
 def on_message(client, userdata, message):
     try:
         payload = str(message.payload.decode("utf-8"))
-        # print(f"🔵 MQTT Received: {payload}")  # Debugging
+        print(f"🔵 Data Masuk: {payload}")  # Cek terminal VS Code Anda
         
         data = payload.split(',')
-        if len(data) >= 2: # Pastikan data tidak rusak
+        if len(data) >= 2:
             st.session_state.gas_val = int(data[0])
             st.session_state.dist_val = int(data[1])
             st.session_state.mqtt_connected = True
             st.session_state.last_update = time.time()
+            
     except Exception as e:
-        print(f"❌ Error Parsing: {e}")
+        print(f"❌ Error Parsing Data: {e}")
 
-# 2. Inisialisasi Client hanya jika belum ada di Session State
+# 2. Inisialisasi Client (Dengan Penanganan Versi & Websocket)
 if 'client' not in st.session_state:
-    client = mqtt.Client(transport='websockets')
+    try:
+        # Coba cara baru (Paho v2)
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, transport='websockets')
+    except:
+        # Fallback cara lama (Paho v1)
+        client = mqtt.Client(transport='websockets')
     
-    # 3. Pasangkan Callback ke Client yang sudah dibuat
+    # 3. Setting Khusus HiveMQ (WAJIB untuk Port 8000)
+    client.ws_set_options(path="/mqtt")
+    
+    # 4. Pasang Callback
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.on_message = on_message
     
+    # 5. Konek
     try:
+        print(f"Menghubungkan ke {BROKER}:{PORT} via Websocket...")
         client.connect(BROKER, PORT)
-        client.loop_start() # Jalankan di background thread
-        st.session_state.client = client # Simpan ke memori
+        client.loop_start()
+        st.session_state.client = client
     except Exception as e: 
-        st.error(f"Koneksi MQTT Gagal: {e}")
+        st.error(f"Koneksi Gagal: {e}")
+        
 # --- SIDEBAR KONTROL ---
 with st.sidebar:
     # A. STATUS KONEKSI (VISUAL)
