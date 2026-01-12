@@ -41,9 +41,9 @@ except:
     st.error("❌ ERROR: File 'model_rinoya_fix.pkl' tidak ditemukan.")
     st.stop()
 
-# --- KONFIGURASI MQTT ---
+# --- KONFIGURASI MQTT (PORT 1883) ---
 BROKER = "broker.hivemq.com"
-PORT = 8000
+PORT = 1883  # Jalur Stabil (Wajib Hotspot HP)
 TOPIC = "rinoya/sic7/data"
 
 # ==========================================
@@ -62,27 +62,22 @@ if 'mqtt_connected' not in st.session_state:
 if 'last_update' not in st.session_state:
     st.session_state.last_update = time.time()
 if 'last_alert_status' not in st.session_state:
-    st.session_state.last_alert_status = ""  # FIX: Prevent toast spam
+    st.session_state.last_alert_status = "" 
 
 # ==========================================
-# 3. MQTT & SIDEBAR SETUP
+# 3. MQTT SETUP (CALLBACKS)
 # ==========================================
-# 1. Definisikan Callback (Kita buat universal agar tidak error versi)
-def on_connect(client, userdata, flags, rc, properties=None):
-    # rc = 0 artinya sukses
+def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("✓ MQTT Connected to HiveMQ!")
+        print(f"✓ BERHASIL TERHUBUNG KE {BROKER}:{PORT}")
         client.subscribe(TOPIC)
     else:
-        print(f"✗ Connection failed code: {rc}")
-
-def on_disconnect(client, userdata, rc, properties=None):
-    print(f"✗ MQTT Disconnected code: {rc}")
+        print(f"✗ GAGAL KONEK. Kode: {rc}")
 
 def on_message(client, userdata, message):
     try:
         payload = str(message.payload.decode("utf-8"))
-        print(f"🔵 Data Masuk: {payload}")  # Cek terminal VS Code Anda
+        print(f"📥 DATA MASUK: {payload}") # Cek Terminal VS Code!
         
         data = payload.split(',')
         if len(data) >= 2:
@@ -90,42 +85,35 @@ def on_message(client, userdata, message):
             st.session_state.dist_val = int(data[1])
             st.session_state.mqtt_connected = True
             st.session_state.last_update = time.time()
-            
     except Exception as e:
-        print(f"❌ Error Parsing Data: {e}")
+        print(f"Error Parsing: {e}")
 
-# 2. Inisialisasi Client (Dengan Penanganan Versi & Websocket)
+# Inisialisasi Client
 if 'client' not in st.session_state:
     try:
-        # Coba cara baru (Paho v2)
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, transport='websockets')
+        # Paksa Version 1 agar kompatibel dengan library baru
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
     except:
-        # Fallback cara lama (Paho v1)
-        client = mqtt.Client(transport='websockets')
-    
-    # 3. Setting Khusus HiveMQ (WAJIB untuk Port 8000)
-    client.ws_set_options(path="/mqtt")
-    
-    # 4. Pasang Callback
+        client = mqtt.Client() # Fallback
+
     client.on_connect = on_connect
-    client.on_disconnect = on_disconnect
     client.on_message = on_message
     
-    # 5. Konek
     try:
-        print(f"Menghubungkan ke {BROKER}:{PORT} via Websocket...")
+        print("Sedang menghubungkan ke MQTT...")
         client.connect(BROKER, PORT)
         client.loop_start()
         st.session_state.client = client
-    except Exception as e: 
-        st.error(f"Koneksi Gagal: {e}")
-        
-# --- SIDEBAR KONTROL ---
+    except Exception as e:
+        st.error(f"Koneksi Internet Error: {e}")
+
+# ==========================================
+# 4. SIDEBAR KONTROL
+# ==========================================
 with st.sidebar:
-    # A. STATUS KONEKSI (VISUAL)
     st.header("📡 Status Perangkat")
     
-    # FIX: Gunakan last_update yang sudah diupdate
+    # Logic Offline (Jika tidak ada data > 15 detik)
     time_diff = time.time() - st.session_state.last_update
     is_online = st.session_state.mqtt_connected and (time_diff < 15)
     
@@ -134,30 +122,18 @@ with st.sidebar:
         st.caption(f"Update terakhir: {int(time_diff)} detik lalu")
     else:
         st.error("🔴 OFFLINE (Terputus)")
-        st.caption("Cek daya ESP32 atau WiFi")
+        st.caption("Cek Hotspot HP & ESP32")
 
     st.markdown("---")
     
-    # B. KALIBRASI SISTEM
     st.header("⚙️ Kalibrasi Sistem")
-    st.info("Atur sensitivitas sensor sesuai kondisi lapangan.")
-    
-    set_batas_penuh = st.slider("📏 Batas Jarak Penuh (cm)", 
-                                min_value=2, max_value=15, value=5, 
-                                help="Jika jarak sensor < nilai ini, maka dianggap PENUH.")
-    
-    set_batas_gas = st.slider("🌫️ Ambang Batas Bau (PPM)", 
-                              min_value=300, max_value=1500, value=800, step=50,
-                              help="Jika gas > nilai ini, maka peringatan MEMBUSUK aktif.")
+    set_batas_penuh = st.slider("📏 Batas Jarak Penuh (cm)", 2, 15, 5)
+    set_batas_gas = st.slider("🌫️ Ambang Batas Bau (PPM)", 300, 1500, 800)
 
     st.markdown("---")
-    
-    # C. TOMBOL RESET
     if st.button("🗑️ Reset Grafik Data", use_container_width=True):
         st.session_state.data_log = pd.DataFrame(columns=['Gas', 'Jarak'])
         st.rerun()
-
-    st.caption("Rinoya Project © 2026")
 
 # --- CSS CUSTOM ---
 st.markdown("""
@@ -173,61 +149,62 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. LOGIKA AI & NOTIFIKASI
+# 5. LOGIKA AI & NOTIFIKASI
 # ==========================================
 live_gas = st.session_state.gas_val
 live_dist = st.session_state.dist_val
 delta_gas = live_gas - st.session_state.last_gas
 st.session_state.last_gas = live_gas
 
-# FIX: Pastikan urutan input sesuai model training
-# Jika model dilatih dengan [gas, jarak, delta_gas]:
 input_data = np.array([[live_gas, live_dist, delta_gas]])
-prediksi_label = model_ai.predict(input_data)[0]
+try:
+    prediksi_label = model_ai.predict(input_data)[0]
+except:
+    prediksi_label = 0 # Default Aman
 
-if prediksi_label == 3: # ANOMALI
+# Logika Status (Gabungan AI & Slider Sidebar)
+if prediksi_label == 3: 
     s_label, s_icon = "ANOMALI TERDETEKSI", "⚡"
     s_bg = "linear-gradient(135deg, #4b4b4b, #2e2e2e)"
     s_desc = "AI mendeteksi lonjakan data tidak wajar."
     current_status = "anomali"
     
-elif prediksi_label == 2: # MEMBUSUK
+elif prediksi_label == 2 or live_gas > set_batas_gas: 
     s_label, s_icon = "BAHAYA: MEMBUSUK", "☣️"
     s_bg = "linear-gradient(135deg, #D90429, #8D0801)"
     s_desc = "Segera tangani! Proses dekomposisi aktif."
     current_status = "membusuk"
     
-elif prediksi_label == 1: # PENUH (KERING)
+elif prediksi_label == 1 or live_dist < set_batas_penuh: 
     s_label, s_icon = "STATUS: PENUH", "🗑️"
     s_bg = "linear-gradient(135deg, #FF9F1C, #E07A5F)"
     s_desc = "Tong penuh (Sampah Kering). Segera angkut."
     current_status = "penuh"
     
-else: # AMAN
+else: 
     s_label, s_icon = "STATUS: NORMAL", "🌱"
     s_bg = "linear-gradient(135deg, #2EC4B6, #218380)"
     s_desc = "Kapasitas tersedia. Udara aman."
     current_status = "normal"
 
-# FIX: Prevent toast spam - only show when status CHANGES
+# Notifikasi Toast (Hanya muncul jika status berubah)
 if current_status != st.session_state.last_alert_status:
     if current_status == "membusuk":
         st.toast("🚨 PERINGATAN: Sampah Membusuk Terdeteksi!", icon="☣️")
     elif current_status == "penuh":
         st.toast("⚠️ INFO: Tong Sampah PENUH! Silakan Angkut.", icon="🗑️")
-    elif current_status == "anomali":
-        st.toast("⚡ ANOMALI: Data Sensor Tidak Normal!", icon="⚡")
     st.session_state.last_alert_status = current_status
 
 # ==========================================
-# 5. UI DASHBOARD
+# 6. UI DASHBOARD
 # ==========================================
 
 # Header
 col_logo, col_title, col_time = st.columns([0.25, 3, 1], gap="small", vertical_alignment="center")
 
 with col_logo:
-    st.image("logo.png", width=160)
+    try: st.image("logo.png", width=160)
+    except: st.header("🖼️")
 
 with col_title:
     st.markdown("""
@@ -259,8 +236,7 @@ with col1:
     st.markdown("##### 📦 Kapasitas Ruang")
     st.metric("Jarak Sensor", f"{live_dist} cm")
     st.progress(persen_isi / 100)
-    
-    if persen_isi > 90:
+    if persen_isi > 90 or live_dist < set_batas_penuh:
         st.error("Overload (Penuh)")
     elif persen_isi > 70:
         st.warning("Hampir Penuh")
@@ -271,10 +247,9 @@ with col2:
     st.markdown("##### 🌫️ Kualitas Udara")
     st.metric("Gas (MQ135)", f"{live_gas} PPM", delta=f"{delta_gas}")
     st.progress(min(1.0, live_gas / 1500))
-    
-    if live_gas > 1000:
+    if live_gas > set_batas_gas + 200:
         st.error("Udara Beracun")
-    elif live_gas > 400:
+    elif live_gas > set_batas_gas:
         st.warning("Mulai Berbau")
     else:
         st.success("Udara Segar")
@@ -283,7 +258,6 @@ with col3:
     st.markdown("##### 🧠 AI Confidence")
     decay_score = min(100, int((live_gas - 300) / 800 * 100)) if live_gas > 300 else 0
     st.metric("Decay Risk", f"{decay_score}%")
-    
     if decay_score > 70: st.error("Critical")
     elif decay_score > 30: st.warning("Warning")
     else: st.success("Safe")
@@ -299,6 +273,5 @@ c1, c2 = st.columns(2)
 with c1: st.area_chart(st.session_state.data_log[['Gas']], color="#FF4B4B", height=250)
 with c2: st.area_chart(st.session_state.data_log[['Jarak']], color="#2EC4B6", height=250)
 
-# FIX: Auto-refresh lebih efisien
-time.sleep(2)  # Refresh setiap 2 detik (bukan 1)
+time.sleep(1)
 st.rerun()
