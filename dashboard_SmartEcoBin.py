@@ -43,7 +43,7 @@ except:
 
 # --- KONFIGURASI MQTT ---
 BROKER = "broker.hivemq.com"
-PORT = 1883
+PORT = 8000
 TOPIC = "rinoya/sic7/data"
 
 # ==========================================
@@ -95,7 +95,7 @@ def on_message(client, userdata, message):
 
 # 2. Inisialisasi Client hanya jika belum ada di Session State
 if 'client' not in st.session_state:
-    client = mqtt.Client()
+    client = mqtt.Client(transport='websockets')
     
     # 3. Pasangkan Callback ke Client yang sudah dibuat
     client.on_connect = on_connect
