@@ -11,7 +11,7 @@ import paho.mqtt.client as mqtt
 # ==========================================
 st.set_page_config(
     page_title="Rinoya Smart Eco-Bin",
-    page_icon="D:\SIC 7\Stage_4\logo.png",
+    page_icon="♻️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
