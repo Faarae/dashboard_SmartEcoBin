@@ -42,7 +42,7 @@ except:
     st.stop()
 
 # --- KONFIGURASI MQTT (PORT 1883) ---
-BROKER = "broker.hivemq.com"
+BROKER = "broker.emqx.io"
 PORT = 1883  # Jalur Stabil (Wajib Hotspot HP)
 TOPIC = "rinoya/sic7/data"
 
