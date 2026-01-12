@@ -84,16 +84,44 @@ if 'client' not in st.session_state:
 
 # --- SIDEBAR KONTROL ---
 with st.sidebar:
-    st.title("🎛️ Pengaturan")
-    st.markdown("---")
-    enable_sound = st.checkbox("🔊 Aktifkan Suara Alarm", value=False)
+    # A. STATUS KONEKSI (VISUAL)
+    st.header("📡 Status Perangkat")
     
-    st.markdown("---")
-    st.caption("Status Koneksi:")
-    if st.session_state.mqtt_connected:
-        st.success("ONLINE (MQTT)")
+    # Logic: Jika tidak ada data > 10 detik, anggap Offline
+    time_diff = time.time() - st.session_state.last_update
+    is_online = st.session_state.mqtt_connected and (time_diff < 15)
+    
+    if is_online:
+        st.success("🟢 ONLINE (Terhubung)")
+        st.caption(f"Update terakhir: {int(time_diff)} detik lalu")
     else:
-        st.warning("OFFLINE / Menunggu Data...")
+        st.error("🔴 OFFLINE (Terputus)")
+        st.caption("Cek daya ESP32 atau WiFi")
+
+    st.markdown("---")
+    
+    # B. KALIBRASI SISTEM (FITUR TAMBAHAN)
+    st.header("⚙️ Kalibrasi Sistem")
+    st.info("Atur sensitivitas sensor sesuai kondisi lapangan.")
+    
+    # Slider 1: Batas Penuh
+    set_batas_penuh = st.slider("📏 Batas Jarak Penuh (cm)", 
+                                min_value=2, max_value=15, value=5, 
+                                help="Jika jarak sensor < nilai ini, maka dianggap PENUH.")
+    
+    # Slider 2: Batas Gas
+    set_batas_gas = st.slider("🌫️ Ambang Batas Bau (PPM)", 
+                              min_value=300, max_value=1500, value=800, step=50,
+                              help="Jika gas > nilai ini, maka peringatan MEMBUSUK aktif.")
+
+    st.markdown("---")
+    
+    # C. TOMBOL RESET
+    if st.button("🗑️ Reset Grafik Data", use_container_width=True):
+        st.session_state.data_log = pd.DataFrame(columns=['Gas', 'Jarak'])
+        st.rerun()
+
+    st.caption("Rinoya Project © 2026")
 
 # --- CSS CUSTOM ---
 st.markdown("""
@@ -118,7 +146,6 @@ st.session_state.last_gas = live_gas
 
 input_data = np.array([[live_gas, live_dist, delta_gas]])
 prediksi_label = model_ai.predict(input_data)[0]
-sound_url = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg" 
 
 if prediksi_label == 3: # ANOMALI
     s_label, s_icon = "ANOMALI TERDETEKSI", "⚡"
@@ -130,14 +157,12 @@ elif prediksi_label == 2: # MEMBUSUK
     s_bg = "linear-gradient(135deg, #D90429, #8D0801)"
     s_desc = "Segera tangani! Proses dekomposisi aktif."
     st.toast("🚨 PERINGATAN: Sampah Membusuk Terdeteksi!", icon="☣️")
-    if enable_sound: st.audio(sound_url, format="audio/ogg", autoplay=True)
     
 elif prediksi_label == 1: # PENUH (KERING)
     s_label, s_icon = "STATUS: PENUH", "🗑️"
     s_bg = "linear-gradient(135deg, #FF9F1C, #E07A5F)"
     s_desc = "Tong penuh (Sampah Kering). Segera angkut."
     st.toast("⚠️ INFO: Tong Sampah PENUH! Silakan Angkut.", icon="🗑️")
-    if enable_sound: st.audio(sound_url, format="audio/ogg", autoplay=True)
     
 else: # AMAN
     s_label, s_icon = "STATUS: NORMAL", "🌱"
@@ -153,13 +178,13 @@ else: # AMAN
 col_logo, col_title, col_time = st.columns([0.25, 3, 1], gap="small", vertical_alignment="center")
 
 with col_logo:
-    st.image("logo.png", width=110)
+    st.image("logo.png", width=160)
 
 with col_title:
     st.markdown("""
         <div style="text-align: left;">
             <h1 style="margin:0; font-size: 3rem; text-shadow: 2px 2px 4px black;">RINOYA Smart Eco-Bin</h1>
-            <h5 style="margin:5px 0 0 0; color: #e0e0e0;">AI-Powered Decomposition Monitoring</h5>
+            <h5 style="margin:0px 0 0 0; color: #e0e0e0;">AI-Powered Decomposition Monitoring</h5>
         </div>
     """, unsafe_allow_html=True)
 
