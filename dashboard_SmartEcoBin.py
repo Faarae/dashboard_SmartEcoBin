@@ -153,7 +153,7 @@ else: # AMAN
 col_logo, col_title, col_time = st.columns([0.25, 3, 1], gap="small", vertical_alignment="center")
 
 with col_logo:
-    t.image("logo.png", width=110)
+    st.image("logo.png", width=110)
 
 with col_title:
     st.markdown("""
