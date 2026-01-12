@@ -67,18 +67,33 @@ if 'last_alert_status' not in st.session_state:
 # ==========================================
 # 3. MQTT & SIDEBAR SETUP
 # ==========================================
+
+# Tambahkan callback debug
+def on_connect(client, userdata, flags, rc):
+    print(f"✓ MQTT Connected with code: {rc}")
+    client.subscribe(TOPIC)
+
+def on_disconnect(client, userdata, rc):
+    print(f"✗ MQTT Disconnected with code: {rc}")
+
+client.on_connect = on_connect
+client.on_disconnect = on_disconnect
+client.on_message = on_message
+
 def on_message(client, userdata, message):
     try:
         payload = str(message.payload.decode("utf-8"))
-        data = payload.split(',')
+        print(f"🔵 MQTT Received: {payload}")  # ← TAMBAHKAN INI
         
-        # FIX: Parse format "gas,jarak"
+        data = payload.split(',')
         st.session_state.gas_val = int(data[0])
         st.session_state.dist_val = int(data[1])
         st.session_state.mqtt_connected = True
-        st.session_state.last_update = time.time()  # FIX: Update timestamp!
+        st.session_state.last_update = time.time()
+        
+        print(f"✓ Parsed: Gas={data[0]}, Jarak={data[1]}")  # ← TAMBAHKAN INI
     except Exception as e:
-        print(f"MQTT Parse Error: {e}")
+        print(f"❌ MQTT Error: {e}")  # ← TAMBAHKAN INI
 
 if 'client' not in st.session_state:
     client = mqtt.Client()
