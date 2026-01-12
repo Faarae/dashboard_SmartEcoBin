@@ -11,7 +11,7 @@ import paho.mqtt.client as mqtt
 # ==========================================
 st.set_page_config(
     page_title="Rinoya Smart Eco-Bin",
-    page_icon="D:\SIC 7\Stage_4\logo.png",
+    page_icon="logo.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -153,8 +153,7 @@ else: # AMAN
 col_logo, col_title, col_time = st.columns([0.25, 3, 1], gap="small", vertical_alignment="center")
 
 with col_logo:
-    try: st.image("D:/SIC 7/Stage_4/logo.png", width=110) # Logo sedikit diperkecil agar pas
-    except: st.header("🖼️")
+    t.image("logo.png", width=110)
 
 with col_title:
     st.markdown("""
