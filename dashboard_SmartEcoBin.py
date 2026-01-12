@@ -61,6 +61,8 @@ if 'mqtt_connected' not in st.session_state:
     st.session_state.mqtt_connected = False
 if 'last_update' not in st.session_state:
     st.session_state.last_update = time.time()
+if 'last_alert_status' not in st.session_state:
+    st.session_state.last_alert_status = ""  # FIX: Prevent toast spam
 
 # ==========================================
 # 3. MQTT & SIDEBAR SETUP
@@ -69,10 +71,14 @@ def on_message(client, userdata, message):
     try:
         payload = str(message.payload.decode("utf-8"))
         data = payload.split(',')
+        
+        # FIX: Parse format "gas,jarak"
         st.session_state.gas_val = int(data[0])
         st.session_state.dist_val = int(data[1])
         st.session_state.mqtt_connected = True
-    except: pass
+        st.session_state.last_update = time.time()  # FIX: Update timestamp!
+    except Exception as e:
+        print(f"MQTT Parse Error: {e}")
 
 if 'client' not in st.session_state:
     client = mqtt.Client()
@@ -82,14 +88,15 @@ if 'client' not in st.session_state:
         client.subscribe(TOPIC)
         client.loop_start()
         st.session_state.client = client
-    except: pass
+    except: 
+        print("MQTT Connection Failed")
 
 # --- SIDEBAR KONTROL ---
 with st.sidebar:
     # A. STATUS KONEKSI (VISUAL)
     st.header("📡 Status Perangkat")
     
-    # Logic: Jika tidak ada data > 10 detik, anggap Offline
+    # FIX: Gunakan last_update yang sudah diupdate
     time_diff = time.time() - st.session_state.last_update
     is_online = st.session_state.mqtt_connected and (time_diff < 15)
     
@@ -102,16 +109,14 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # B. KALIBRASI SISTEM (FITUR TAMBAHAN)
+    # B. KALIBRASI SISTEM
     st.header("⚙️ Kalibrasi Sistem")
     st.info("Atur sensitivitas sensor sesuai kondisi lapangan.")
     
-    # Slider 1: Batas Penuh
     set_batas_penuh = st.slider("📏 Batas Jarak Penuh (cm)", 
                                 min_value=2, max_value=15, value=5, 
                                 help="Jika jarak sensor < nilai ini, maka dianggap PENUH.")
     
-    # Slider 2: Batas Gas
     set_batas_gas = st.slider("🌫️ Ambang Batas Bau (PPM)", 
                               min_value=300, max_value=1500, value=800, step=50,
                               help="Jika gas > nilai ini, maka peringatan MEMBUSUK aktif.")
@@ -146,6 +151,8 @@ live_dist = st.session_state.dist_val
 delta_gas = live_gas - st.session_state.last_gas
 st.session_state.last_gas = live_gas
 
+# FIX: Pastikan urutan input sesuai model training
+# Jika model dilatih dengan [gas, jarak, delta_gas]:
 input_data = np.array([[live_gas, live_dist, delta_gas]])
 prediksi_label = model_ai.predict(input_data)[0]
 
@@ -153,30 +160,41 @@ if prediksi_label == 3: # ANOMALI
     s_label, s_icon = "ANOMALI TERDETEKSI", "⚡"
     s_bg = "linear-gradient(135deg, #4b4b4b, #2e2e2e)"
     s_desc = "AI mendeteksi lonjakan data tidak wajar."
+    current_status = "anomali"
     
 elif prediksi_label == 2: # MEMBUSUK
     s_label, s_icon = "BAHAYA: MEMBUSUK", "☣️"
     s_bg = "linear-gradient(135deg, #D90429, #8D0801)"
     s_desc = "Segera tangani! Proses dekomposisi aktif."
-    st.toast("🚨 PERINGATAN: Sampah Membusuk Terdeteksi!", icon="☣️")
+    current_status = "membusuk"
     
 elif prediksi_label == 1: # PENUH (KERING)
     s_label, s_icon = "STATUS: PENUH", "🗑️"
     s_bg = "linear-gradient(135deg, #FF9F1C, #E07A5F)"
     s_desc = "Tong penuh (Sampah Kering). Segera angkut."
-    st.toast("⚠️ INFO: Tong Sampah PENUH! Silakan Angkut.", icon="🗑️")
+    current_status = "penuh"
     
 else: # AMAN
     s_label, s_icon = "STATUS: NORMAL", "🌱"
     s_bg = "linear-gradient(135deg, #2EC4B6, #218380)"
     s_desc = "Kapasitas tersedia. Udara aman."
+    current_status = "normal"
+
+# FIX: Prevent toast spam - only show when status CHANGES
+if current_status != st.session_state.last_alert_status:
+    if current_status == "membusuk":
+        st.toast("🚨 PERINGATAN: Sampah Membusuk Terdeteksi!", icon="☣️")
+    elif current_status == "penuh":
+        st.toast("⚠️ INFO: Tong Sampah PENUH! Silakan Angkut.", icon="🗑️")
+    elif current_status == "anomali":
+        st.toast("⚡ ANOMALI: Data Sensor Tidak Normal!", icon="⚡")
+    st.session_state.last_alert_status = current_status
 
 # ==========================================
 # 5. UI DASHBOARD
 # ==========================================
 
-# --- REVISI 1: KOLOM HEADER LEBIH RAPAT ---
-# Logo dipersempit (0.2), Judul dilebarkan (3) agar jaraknya dekat
+# Header
 col_logo, col_title, col_time = st.columns([0.25, 3, 1], gap="small", vertical_alignment="center")
 
 with col_logo:
@@ -208,14 +226,11 @@ st.markdown(f"""
 col1, col2, col3 = st.columns(3)
 persen_isi = max(0, min(100, int(((28 - live_dist) / 28) * 100)))
 
-# --- REVISI 2: LABEL INDIKATOR DI SEMUA KOLOM ---
-
 with col1:
     st.markdown("##### 📦 Kapasitas Ruang")
     st.metric("Jarak Sensor", f"{live_dist} cm")
     st.progress(persen_isi / 100)
     
-    # Label Status Kapasitas (Baru)
     if persen_isi > 90:
         st.error("Overload (Penuh)")
     elif persen_isi > 70:
@@ -228,7 +243,6 @@ with col2:
     st.metric("Gas (MQ135)", f"{live_gas} PPM", delta=f"{delta_gas}")
     st.progress(min(1.0, live_gas / 1500))
     
-    # Label Status Gas (Baru)
     if live_gas > 1000:
         st.error("Udara Beracun")
     elif live_gas > 400:
@@ -241,7 +255,6 @@ with col3:
     decay_score = min(100, int((live_gas - 300) / 800 * 100)) if live_gas > 300 else 0
     st.metric("Decay Risk", f"{decay_score}%")
     
-    # Label Status Pembusukan (Sudah ada)
     if decay_score > 70: st.error("Critical")
     elif decay_score > 30: st.warning("Warning")
     else: st.success("Safe")
@@ -257,5 +270,6 @@ c1, c2 = st.columns(2)
 with c1: st.area_chart(st.session_state.data_log[['Gas']], color="#FF4B4B", height=250)
 with c2: st.area_chart(st.session_state.data_log[['Jarak']], color="#2EC4B6", height=250)
 
-time.sleep(1)
+# FIX: Auto-refresh lebih efisien
+time.sleep(2)  # Refresh setiap 2 detik (bukan 1)
 st.rerun()
