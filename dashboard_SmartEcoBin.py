@@ -4,7 +4,7 @@ import time
 import base64
 import joblib
 import numpy as np
-import requests  # <--- Kita pakai ini pengganti MQTT
+import requests # Library untuk HTTP Request
 import datetime
 
 # ==========================================
@@ -16,13 +16,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# --- KONFIGURASI HTTP (GANTI IP DISINI) ---
-# Masukkan IP yang muncul di Serial Monitor Arduino
-ESP_URL = "http://192.168.1.5/"  # <--- GANTI IP INI
-
-# Detak Jantung Sistem
-st.info(f"⚡ Detak Jantung Sistem: {datetime.datetime.now().strftime('%H:%M:%S')}")
 
 # --- FUNGSI BACKGROUND IMAGE ---
 def add_bg_from_local(image_file):
@@ -46,9 +39,12 @@ add_bg_from_local('background.jpg')
 try:
     model_ai = joblib.load('model_rinoya_fix.pkl')
 except:
-    # Buat dummy error biar gak crash kalau file gak ada
-    st.error("❌ ERROR: File 'model_rinoya_fix.pkl' tidak ditemukan. Menggunakan mode bypass.")
+    # Dummy jika file tidak ada, agar error tidak mematikan app
     model_ai = None
+
+# --- KONFIGURASI HTTP TARGET (SESUAI ARDUINO) ---
+ESP_IP = "192.168.225.68"
+API_URL = f"http://{ESP_IP}/data" # Endpoint sesuai kode Arduino Anda
 
 # ==========================================
 # 2. INISIALISASI SESSION STATE
@@ -63,34 +59,42 @@ if 'dist_val' not in st.session_state:
     st.session_state.dist_val = 0
 if 'is_online' not in st.session_state:
     st.session_state.is_online = False
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = time.time()
 if 'last_alert_status' not in st.session_state:
     st.session_state.last_alert_status = "" 
 
 # ==========================================
-# 3. FUNGSI AMBIL DATA (HTTP REQUEST)
+# 3. FUNGSI AMBIL DATA DARI ARDUINO
 # ==========================================
-def get_data_from_esp():
+def get_sensor_data():
     try:
-        # Request data ke ESP32 (Timeout 2 detik)
-        response = requests.get(ESP_URL, timeout=2)
+        # Request ke http://192.168.225.68/data
+        # Timeout 1 detik agar UI tidak hang jika ESP mati
+        response = requests.get(API_URL, timeout=1)
+        
         if response.status_code == 200:
+            # Parsing JSON dari Arduino: {"gas":xxx, "distance":xxx}
             data = response.json()
-            # Pastikan kunci JSON sama dengan di Arduino ('gas' dan 'jarak')
-            return int(data['gas']), int(data['jarak']), True
-    except:
-        pass
-    return None, None, False
+            
+            gas_in = int(data['gas'])
+            dist_in = int(data['distance'])
+            
+            st.session_state.gas_val = gas_in
+            st.session_state.dist_val = dist_in
+            st.session_state.is_online = True
+            st.session_state.last_update = time.time()
+        else:
+            st.session_state.is_online = False
+            
+    except Exception as e:
+        # Jika gagal connect (ESP mati / beda network)
+        st.session_state.is_online = False
+        # Debugging (bisa dihapus nanti)
+        # print(f"Error connecting: {e}")
 
-# --- PROSES PENGAMBILAN DATA ---
-# Kita panggil fungsi ini setiap kali halaman refresh
-gas_in, dist_in, status_koneksi = get_data_from_esp()
-
-if status_koneksi:
-    st.session_state.gas_val = gas_in
-    st.session_state.dist_val = dist_in
-    st.session_state.is_online = True
-else:
-    st.session_state.is_online = False
+# JALANKAN FUNGSI PENGAMBILAN DATA
+get_sensor_data()
 
 # ==========================================
 # 4. SIDEBAR KONTROL
@@ -98,18 +102,21 @@ else:
 with st.sidebar:
     st.header("📡 Status Perangkat")
     
+    # Indikator Online/Offline
     if st.session_state.is_online:
-        st.success("🟢 ONLINE (Terhubung)")
-        st.caption(f"Sumber: {ESP_URL}")
+        st.success(f"🟢 ONLINE")
+        st.caption(f"Terhubung ke: {ESP_IP}")
+        st.caption(f"Last ping: {datetime.datetime.now().strftime('%H:%M:%S')}")
     else:
-        st.error("🔴 OFFLINE (Terputus)")
-        st.caption("Cek IP Address & Hotspot HP")
+        st.error("🔴 OFFLINE")
+        st.caption(f"Gagal menghubungi {ESP_IP}")
+        st.caption("Pastikan Laptop & ESP di WiFi yang sama")
 
     st.markdown("---")
     
     st.header("⚙️ Kalibrasi Sistem")
     set_batas_penuh = st.slider("📏 Batas Jarak Penuh (cm)", 2, 15, 5)
-    set_batas_gas = st.slider("🌫️ Ambang Batas Bau (PPM)", 300, 1500, 800)
+    set_batas_gas = st.slider("🌫️ Ambang Batas Bau (PPM)", 300, 3000, 2500) # Default disesuaikan dgn kode arduino
 
     st.markdown("---")
     if st.button("🗑️ Reset Grafik Data", use_container_width=True):
@@ -119,7 +126,7 @@ with st.sidebar:
 # --- CSS CUSTOM ---
 st.markdown("""
     <style>
-    .block-container { padding-top: 3rem !important; padding-bottom: 2rem; }
+    .block-container { padding-top: 2rem !important; padding-bottom: 2rem; }
     div[data-testid="stMetric"] { background-color: rgba(38, 39, 48, 0.85); border: 1px solid rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 10px; backdrop-filter: blur(5px); }
     .status-card { padding: 25px; border-radius: 15px; color: white; text-align: left; display: flex; align-items: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); }
     .status-icon { font-size: 50px; margin-right: 25px; }
@@ -135,19 +142,19 @@ st.markdown("""
 live_gas = st.session_state.gas_val
 live_dist = st.session_state.dist_val
 delta_gas = live_gas - st.session_state.last_gas
-st.session_state.last_gas = live_gas # Update last gas untuk loop berikutnya
+st.session_state.last_gas = live_gas
 
-# Prediksi AI
-try:
-    if model_ai is not None:
-        input_data = np.array([[live_gas, live_dist, delta_gas]])
+input_data = np.array([[live_gas, live_dist, delta_gas]])
+
+# Prediksi AI (Handling jika model tidak ada)
+prediksi_label = 0
+if model_ai:
+    try:
         prediksi_label = model_ai.predict(input_data)[0]
-    else:
-        prediksi_label = 0
-except:
-    prediksi_label = 0 # Default Aman
+    except:
+        pass
 
-# Logika Status (Gabungan AI & Slider Sidebar)
+# Logika Status
 if prediksi_label == 3: 
     s_label, s_icon = "ANOMALI TERDETEKSI", "⚡"
     s_bg = "linear-gradient(135deg, #4b4b4b, #2e2e2e)"
@@ -163,7 +170,7 @@ elif prediksi_label == 2 or live_gas > set_batas_gas:
 elif prediksi_label == 1 or live_dist < set_batas_penuh: 
     s_label, s_icon = "STATUS: PENUH", "🗑️"
     s_bg = "linear-gradient(135deg, #FF9F1C, #E07A5F)"
-    s_desc = "Tong penuh (Sampah Kering). Segera angkut."
+    s_desc = "Tong penuh. Segera angkut."
     current_status = "penuh"
     
 else: 
@@ -172,7 +179,7 @@ else:
     s_desc = "Kapasitas tersedia. Udara aman."
     current_status = "normal"
 
-# Notifikasi Toast (Hanya muncul jika status berubah)
+# Notifikasi Toast
 if current_status != st.session_state.last_alert_status:
     if current_status == "membusuk":
         st.toast("🚨 PERINGATAN: Sampah Membusuk Terdeteksi!", icon="☣️")
@@ -195,12 +202,12 @@ with col_title:
     st.markdown("""
         <div style="text-align: left;">
             <h1 style="margin:0; font-size: 3rem; text-shadow: 2px 2px 4px black;">RINOYA Smart Eco-Bin</h1>
-            <h5 style="margin:0px 0 0 0; color: #e0e0e0;">AI-Powered Decomposition Monitoring</h5>
+            <h5 style="margin:0px 0 0 0; color: #e0e0e0;">AI-Powered Decomposition Monitoring (HTTP Mode)</h5>
         </div>
     """, unsafe_allow_html=True)
 
 with col_time:
-    st.metric("System Time", time.strftime("%H:%M:%S"))
+    st.metric("System Clock", datetime.datetime.now().strftime("%H:%M:%S"))
 
 # Banner Status
 st.markdown(f"""
@@ -215,7 +222,6 @@ st.markdown(f"""
 
 # Grid Metrik
 col1, col2, col3 = st.columns(3)
-# Rumus isi: Anggap tinggi tong 28cm (sesuaikan jika perlu)
 persen_isi = max(0, min(100, int(((28 - live_dist) / 28) * 100)))
 
 with col1:
@@ -231,31 +237,32 @@ with col1:
     
 with col2:
     st.markdown("##### 🌫️ Kualitas Udara")
-    st.metric("Gas (MQ135)", f"{live_gas} PPM", delta=f"{delta_gas}")
-    st.progress(min(1.0, live_gas / 1500))
-    if live_gas > set_batas_gas + 200:
+    st.metric("Gas (Analog)", f"{live_gas}", delta=f"{delta_gas}")
+    # Normalisasi progress bar gas (misal max 4095 untuk ESP32)
+    prog_gas = min(1.0, live_gas / 4095)
+    st.progress(prog_gas)
+    if live_gas > set_batas_gas:
         st.error("Udara Beracun")
-    elif live_gas > set_batas_gas:
+    elif live_gas > 1500: # Angka tengah-tengah
         st.warning("Mulai Berbau")
     else:
         st.success("Udara Segar")
 
 with col3:
     st.markdown("##### 🧠 AI Confidence")
-    # Logika dummy confidence score (bisa diganti proba AI asli)
-    decay_score = min(100, int((live_gas - 300) / 800 * 100)) if live_gas > 300 else 0
+    # Logika dummy untuk decay score berdasarkan gas
+    decay_score = min(100, int((live_gas / 3000) * 100))
     st.metric("Decay Risk", f"{decay_score}%")
     if decay_score > 70: st.error("Critical")
     elif decay_score > 30: st.warning("Warning")
     else: st.success("Safe")
 
 # ==========================================
-# 7. GRAFIK & AUTO REFRESH
+# 7. UPDATE GRAFIK & AUTO-REFRESH
 # ==========================================
-
 st.markdown("### 📈 Real-time Trend")
 
-# Update Data Log
+# Update Data Log untuk Grafik
 new_data = pd.DataFrame({'Gas': [live_gas], 'Jarak': [live_dist]})
 st.session_state.data_log = pd.concat([st.session_state.data_log, new_data], ignore_index=True)
 
@@ -269,14 +276,11 @@ with c1:
 with c2: 
     st.area_chart(st.session_state.data_log[['Jarak']], color="#2EC4B6", height=250)
 
-# --- TOMBOL DARURAT ---
-if st.button("🔄 Paksa Refresh Data"):
+# --- TOMBOL REFRESH MANUAL ---
+if st.button("🔄 Paksa Refresh"):
     st.rerun()
 
-# --- AUTO REFRESH LOOP ---
-# Progress bar tipuan biar kelihatan sedang bekerja
-progress_text = "Menunggu data baru dari ESP32..."
-my_bar = st.progress(0, text=progress_text)
-time.sleep(1) # Tunggu 1 detik
-my_bar.empty()
-st.rerun()    # Ulangi script dari atas (mengambil data HTTP baru)
+# --- AUTO REFRESH LOGIC ---
+# Menggunakan sleep dan rerun untuk melakukan polling data setiap 1 detik
+time.sleep(1)
+st.rerun()
