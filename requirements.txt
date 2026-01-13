@@ -1,7 +1,6 @@
 streamlit
 pandas
 numpy
-paho-mqtt
+requests
 joblib
 scikit-learn
-Pillow
