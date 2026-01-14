@@ -7,9 +7,8 @@ import requests # Library HTTP
 import datetime
 import warnings
 
-# ==========================================
+
 # 0. KONFIGURASI HALAMAN
-# ==========================================
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
@@ -19,9 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==========================================
 # 1. KONFIGURASI KONEKSI (HTTP)
-# ==========================================
 # GANTI IP INI SESUAI ARDUINO ANDA
 ESP_IP = "172.20.10.3" 
 API_URL = f"http://{ESP_IP}/data" 
@@ -30,17 +27,13 @@ API_URL = f"http://{ESP_IP}/data"
 LIMIT_JARAK_PENUH = 5   # cm
 LIMIT_GAS_BAU = 2500    # Analog Value
 
-# ==========================================
 # 2. LOAD MODEL AI
-# ==========================================
 try:
     model_ai = joblib.load('model_rinoya_fix.pkl')
 except:
     model_ai = None
 
-# ==========================================
 # 3. SESSION STATE
-# ==========================================
 if 'data_log' not in st.session_state:
     st.session_state.data_log = pd.DataFrame(columns=['Waktu', 'Gas', 'Jarak', 'Status'])
 if 'start_time' not in st.session_state:
@@ -56,9 +49,7 @@ if 'is_online' not in st.session_state:
 if 'last_alert_status' not in st.session_state:
     st.session_state.last_alert_status = "" 
 
-# ==========================================
 # 4. FUNGSI AMBIL DATA
-# ==========================================
 def get_sensor_data():
     try:
         response = requests.get(API_URL, timeout=1.5)
@@ -74,9 +65,7 @@ def get_sensor_data():
 
 get_sensor_data()
 
-# ==========================================
 # 5. SIDEBAR (TEMA & DATA)
-# ==========================================
 with st.sidebar:
     
     # --- FITUR TEMA (TERANG/GELAP) ---
@@ -86,12 +75,31 @@ with st.sidebar:
     st.markdown("---")
     st.header("Status Koneksi")
     
+    # Cek dulu status koneksinya (Online/Offline)
     if st.session_state.is_online:
-        st.success(f"🟢 ONLINE")
+    # === BAGIAN JIKA ONLINE ===
+        st.success("🟢 ONLINE")
         st.caption(f"IP: {ESP_IP}")
+    
+    # Fitur Tambahan: Cek Status OLED (Hanya jalan kalau Online)
+        try:
+            response = requests.get(API_URL, timeout=1.5)
+            if response.status_code == 200:
+                data = response.json()
+            # Ambil status oled, default 'unknown' jika tidak ada
+                oled_status = data.get('status', 'unknown')
+            
+                if oled_status == 'full':
+                    st.warning("🖥️ OLED: FULL Display")
+                else:
+                    st.info("🖥️ OLED: IDLE Display")
+        except:
+            pass # Jika gagal ambil data OLED, diam saja (jangan bikin error)
+
     else:
+    # === BAGIAN JIKA OFFLINE ===
         st.error("🔴 OFFLINE")
-        st.caption("Cek koneksi WiFi")
+        st.caption("Cek koneksi WiFi dan IP Address")
 
     st.markdown("---")
     st.header("Statistik Sesi")
@@ -121,14 +129,12 @@ with st.sidebar:
         """
         <div style='text-align: center; color: grey; font-size: 12px;'>
             <b>Rinoya Smart Eco-Bin</b><br>
-            © 2024 Rinoya Team.<br>All Rights Reserved.
+            © 2025 Rinoya Team.<br>All Rights Reserved.
         </div>
         """, unsafe_allow_html=True
     )
 
-# ==========================================
 # 6. PENGATURAN CSS (WARNA SOLID)
-# ==========================================
 
 if theme_mode:
     # --- WARNA GELAP (SOLID) ---
@@ -190,9 +196,7 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# ==========================================
 # 7. LOGIKA AI & STATUS
-# ==========================================
 live_gas = st.session_state.gas_val
 live_dist = st.session_state.dist_val
 delta_gas = live_gas - st.session_state.last_gas
@@ -233,9 +237,7 @@ if current_status != st.session_state.last_alert_status:
     elif current_status == "penuh": st.toast("⚠️ Tong Penuh!", icon="🗑️")
     st.session_state.last_alert_status = current_status
 
-# ==========================================
 # 8. DASHBOARD HEADER
-# ==========================================
 col_logo, col_title, col_time = st.columns([0.25, 3, 1], gap="small", vertical_alignment="center")
 
 with col_logo:
@@ -253,9 +255,7 @@ with col_title:
 with col_time:
     st.metric("System Time", time.strftime("%H:%M:%S"))
 
-# ==========================================
 # 9. BANNER & METRIK
-# ==========================================
 st.markdown(f"""
     <div class="status-card" style="background: {s_bg};">
         <div class="status-icon">{s_icon}</div>
@@ -293,9 +293,7 @@ with col3:
     elif decay_score > 40: st.warning("Warning")
     else: st.success("Safe")
 
-# ==========================================
 # 10. GRAFIK & LOOP
-# ==========================================
 st.markdown(f"### 📈 Real-time Trend")
 
 timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
